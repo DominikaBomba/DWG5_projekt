@@ -1,0 +1,5 @@
+﻿  main.cpp
+C:\Users\Dominika Bomba\Desktop\simulation_v1\main.cpp(23,16): warning C4244: 'return': conversion from 'double' to 'float', possible loss of data
+  simulation_v1.vcxproj -> C:\Users\Dominika Bomba\Desktop\simulation_v1\x64\Debug\simulation_v1.exe
+  'pwsh.exe' is not recognized as an internal or external command,
+  operable program or batch file.
