@@ -78,14 +78,126 @@ void keep_on_chain(std::vector<Particle>& particles, std::vector<Constraint> con
     }
     for (Particle& particle : particles) {
         if (particle.mass_inv == 0.0f) continue;
-        particle.vel = (particle.cur_pos - particle.prev_pos) * (1.0f / dt);
+        particle.vel = (particle.cur_pos - particle.prev_pos) * (1.0f / dt) * 0.99f;
     }
    
 
 }
+
+
+Cloth create_mesh() {
+    Cloth chain;
+    int num_of_particles = 5;
+    int num_of_rows = 5;
+    //dodajemy particle do chaina
+    for (int j = 0; j < num_of_rows; j++)
+    {
+        for (int i = 0; i < num_of_particles; i++) {
+            Particle p1;
+            (i == 0) ? p1.mass_inv = 0.0f : p1.mass_inv = 1.0f;
+            p1.cur_pos = { 1.0f * i , -(float)i, -j * 2.0f + 0.2f * j };
+            //   p1.prev_pos = { (float)i, (float)i + 3, 0.0f };
+            p1.vel = { 0.0f, 0.0f, 0.0f };
+
+            chain.particles.push_back(p1);
+        }
+    }
+
+
+
+    //dodajemy constrainty pomiedzy kulkami
+    for (int i = 0; i < num_of_rows; i++)
+    {
+        for (int j = 0;j < num_of_particles - 1; j++) {
+            Constraint c;
+            c.p1 = &chain.particles[j + num_of_particles * i];
+            c.p2 = &chain.particles[j + num_of_particles * i + 1];
+            c.rest_length = 2.0f;
+            chain.constraints.push_back(c);
+        }
+    }
+    for (int i = 0; i < num_of_rows - 1; i++)
+    {
+        for (int j = 0; j < num_of_particles; j++) {
+            Constraint c;
+            c.p1 = &chain.particles[j + num_of_particles * i];
+            c.p2 = &chain.particles[j + (num_of_particles) * (i + 1)];
+            c.rest_length = 2.0f;
+            chain.constraints.push_back(c);
+
+        }
+    }
+    return chain;
+}
+Cloth create_circle() {
+    Cloth chain;
+    int num_of_particles = 12;   
+    int num_of_rows = 5;      
+    float radius = 2.0f;
+
+   
+    for (int j = 0; j < num_of_rows; j++)
+    {
+        for (int i = 0; i < num_of_particles; i++) {
+            Particle p1;
+            (j == 0) ? p1.mass_inv = 0.0f : p1.mass_inv = 1.0f;   
+            float angle = 2.0f * PI * i / num_of_particles;
+            p1.cur_pos = { radius * cosf(angle), -(float)j, radius * sinf(angle) };
+           
+            p1.vel = { 0.0f, 0.0f, 0.0f };
+            chain.particles.push_back(p1);
+        }
+    }
+ 
+    for (int i = 0; i < num_of_rows; i++)
+    {
+        for (int j = 0; j < num_of_particles; j++) {
+            Constraint c;
+            c.p1 = &chain.particles[j + num_of_particles * i];
+            c.p2 = &chain.particles[(j + 1) % num_of_particles + num_of_particles * i];
+            c.rest_length = distance(c.p1->cur_pos, c.p2->cur_pos);
+            chain.constraints.push_back(c);
+        }
+    }
+   
+    for (int i = 0; i < num_of_rows - 1; i++)
+    {
+        for (int j = 0; j < num_of_particles; j++) {
+            Constraint c;
+            c.p1 = &chain.particles[j + num_of_particles * i];
+            c.p2 = &chain.particles[j + num_of_particles * (i + 1)];
+            c.rest_length = distance(c.p1->cur_pos, c.p2->cur_pos);
+            chain.constraints.push_back(c);
+        }
+    }
+    return chain;
+}
+Cloth create_chain() {
+    Cloth chain;
+    int num_of_particles = 5;
+    //dodajemy particle do chaina
+    for (int i = 0; i < num_of_particles; i++) {
+        Particle p1;
+        (i == 0) ? p1.mass_inv = 0.0f : p1.mass_inv = 1.0f;
+        p1.cur_pos = { (float)i , (float)i + 3, (i % 2 == 0) ? 1.0f : 2.0f };
+        p1.prev_pos = { (float)i, (float)i + 3, 0.0f };
+        p1.vel = { 0.0f, 0.0f, 0.0f };
+
+        chain.particles.push_back(p1);
+    }
+    //dodajemy constrainty pomiedzy kulkami
+    for (int i = 0; i < num_of_particles - 1; i++) {
+        Constraint c;
+        c.p1 = &chain.particles[i];
+        c.p2 = &chain.particles[i + 1];
+        c.rest_length = distance(c.p1->cur_pos, c.p2->cur_pos);
+        chain.constraints.push_back(c);
+    }
+    return chain;
+}
 int main(void)
 {
-
+    
 
    const int screenWidth = 800;
     const int screenHeight = 450;
@@ -113,33 +225,15 @@ int main(void)
     */
     SetTargetFPS(60);           
   
-    float delay = 1.0f;
+    float delay = 0.99f;
     //dodaæ accumulated_time
-
-    Cloth chain;
-    int num_of_particles = 5;
-    //dodajemy particle do chaina
-    for(int i = 0; i < num_of_particles; i++) {
-        Particle p1;
-        (i == 0) ? p1.mass_inv = 0.0f : p1.mass_inv = 1.0f;
-        p1.cur_pos = { (float)i , (float)i+3, (i%2 == 0) ? 1.0f : 2.0f};
-        p1.prev_pos = { (float)i, (float)i+3, 0.0f};
-        p1.vel = { 0.0f, 0.0f, 0.0f };
-
-        chain.particles.push_back(p1);
-    }
-    //dodajemy constrainty pomiedzy kulkami
-    for (int i = 0; i < num_of_particles-1; i++) {
-        Constraint c;
-        c.p1 = &chain.particles[i];
-        c.p2 = &chain.particles[i + 1];
-        c.rest_length = distance(c.p1->cur_pos, c.p2->cur_pos);
-        chain.constraints.push_back(c);
-    }
+    Cloth chain = create_circle();
+   
 
     
     while (!WindowShouldClose())     
     {
+        UpdateCamera(&camera, CAMERA_FREE);
         float dt = GetFrameTime();
         if (dt > 0.0f) {
             integrate_linear(chain.particles, chain.constraints, dt);
