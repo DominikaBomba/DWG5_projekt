@@ -25,14 +25,27 @@ Vector3 operator +(Vector3 a, Vector3 b) {
 Vector3 operator -(Vector3 a, Vector3 b) {
     return { a.x- b.x, a.y - b.y, a.z - b.z };
 }
+float mag2(Vector3 a) {
+    return a.x * a.x + a.y * a.y + a.z * a.z;
+}
+float mag(Vector3 a) {
+    return sqrt(mag2(a));
+}
 float distance(Vector3 a, Vector3 b) {
-    return sqrt(pow((b.x - a.x), 2) + pow((b.y - a.y), 2) + pow((b.z - a.z), 2));
+    return mag(a - b);
+}
+Vector3 norm(Vector3 a) {
+    return a / mag(a);
+}
+Vector3 norm_safe(Vector3 a) {
+    const float len = mag(a);
+    return len > 0.0f ? a / len : a;
 }
 struct Particle {
     Vector3 cur_pos;
     Vector3 prev_pos;
     Vector3 vel;
-
+    Color color = BLUE;
     float mass_inv = 1.0f;
 };
 
@@ -40,7 +53,13 @@ struct Particle {
 struct Constraint_Distance {
     Particle* p1 = nullptr; int16_t i1 = 0;
     Particle* p2 = nullptr; int i2 = 0;
-    float rest_length = 2.0f;
+    float rest_length = 0.5f;
+};
+struct Sphere {
+    Vector3 pos;
+    float radius;
+
+
 };
 
 struct Constraint_Bend {
@@ -51,9 +70,9 @@ struct Constraint_Bend {
 
 // Long Range Attachment
 struct Constraint_LRA {
-    int16_t i1 = 0; // closest fixed particle
-    int16_t i2 = 0; // any dynamic particle
-    float max_length = 2.0f;
+    int16_t i1 = 0; 
+    int16_t i2 = 0; 
+    float max_length = 1.0f;
 };
 
 struct Cloth {
@@ -145,39 +164,88 @@ void solve_lra(std::vector<Particle>& particles, std::vector<Constraint_LRA> con
         Particle& p1 = particles[constraint.i1];
         Particle& p2 = particles[constraint.i2];
 
-
-        const float w1 = p1.mass_inv;
-        const float w2 = p2.mass_inv;
-        const float w_total = w1 + w2;
-
-        if (w_total < epsilon) {
+        if (p2.mass_inv < epsilon) {
             continue;
         }
 
-        const float dist = distance(p1.cur_pos, p2.cur_pos);
+        const Vector3 diff = p1.cur_pos - p2.cur_pos;
+        const float dist = mag(diff);
         if (dist > constraint.max_length) {
-            Vector3 substract_vectors = p1.cur_pos - p2.cur_pos;
-            Vector3 norm = substract_vectors / dist;
+            Vector3 norm = diff / dist;
 
             const float delta = (constraint.max_length - dist);
-            const float lambda = delta / (w_total );
-            Vector3 dx = norm * lambda;
+            Vector3 dx = norm * delta;
 
-            p1.cur_pos = p1.cur_pos + dx * w1;
-            p2.cur_pos = p2.cur_pos - dx * w2;
+            p2.cur_pos = p2.cur_pos - dx;
         }
 
     }
 }
 
-void solve_collision_sphere(std::vector<Particle>& particles /*, spheres */) {
+void solve_collision_sphere(std::vector<Particle>& particles , Sphere& sphere) {
+    for (Particle& particle : particles) {
+        float dist = (distance(particle.cur_pos, sphere.pos));
+        if (dist < sphere.radius) {
+            Vector3 substract_vectors = particle.cur_pos - sphere.pos;
+            Vector3 norm = substract_vectors / (dist);
 
+            const float delta = (sphere.radius - dist);
+            const float lambda = delta ;
+            Vector3 dx = norm * lambda;
+
+            particle.cur_pos = particle.cur_pos + dx;
+           
+        }
+    }
 }
 
 void derive_velocity(std::vector<Particle>& particles, float dt) {
     for (Particle& particle : particles) {
         if (particle.mass_inv == 0.0f) continue;
-        particle.vel = (particle.cur_pos - particle.prev_pos) / dt;// *0.99f;
+        particle.vel = (particle.cur_pos - particle.prev_pos) / dt *0.99f;
+    }
+}
+
+void solve_collision_particles(std::vector<Particle>& particles, float dt) {
+    for (int i = 0; i < particles.size(); i++) {
+        for (int j = 0; j < particles.size(); j++) {
+            if (i == j) continue;
+            constexpr float epsilon = 1.0e-8;
+
+            Particle& particle1 = particles[i];
+            Particle& particle2 = particles[j];
+            Vector3 diff = particle1.cur_pos - particle2.cur_pos;
+
+            const float w1 = particle1.mass_inv;
+            const float w2 = particle2.mass_inv;
+            float dist = (mag(diff));
+            const float w_total = w1 + w2;
+
+            if (w_total < epsilon) {
+                continue;
+            }
+
+            if (dist <0.6f) {
+              
+              
+                Vector3 norm = diff / dist;
+
+                const float delta = (0.6f  - dist);
+                const float lambda = delta / (w_total / dt / dt);
+                Vector3 dx = norm * lambda;
+
+                particle1.cur_pos = particle1.cur_pos + dx * w1;
+                particle2.cur_pos = particle2.cur_pos - dx * w2;
+                particle1.color = GREEN;
+                particle2.color = GREEN;
+
+                
+            }
+            else{
+                particle1.color = BLUE;
+                particle2.color = BLUE;
+            }
+        }
     }
 }
 
@@ -185,9 +253,9 @@ void derive_velocity(std::vector<Particle>& particles, float dt) {
 Cloth create_mesh() {
     Cloth chain;
     int num_of_particles = 5;
-    int num_of_rows = 5;
+    int num_of_columns = 5;
     //dodajemy particle do chaina
-    for (int j = 0; j < num_of_rows; j++)
+    for (int j = 0; j < num_of_columns; j++)
     {
         for (int i = 0; i < num_of_particles; i++) {
             Particle p1;
@@ -203,7 +271,7 @@ Cloth create_mesh() {
 
 
     // constrainty pomiedzy kulkami
-    for (int i = 0; i < num_of_rows; i++)
+    for (int i = 0; i < num_of_columns; i++)
     {
         for (int j = 0;j < num_of_particles - 1; j++) {
             Constraint_Distance c;
@@ -213,7 +281,7 @@ Cloth create_mesh() {
             chain.constraints.push_back(c);
         }
     }
-    for (int i = 0; i < num_of_rows - 1; i++)
+    for (int i = 0; i < num_of_columns - 1; i++)
     {
         for (int j = 0; j < num_of_particles; j++) {
             Constraint_Distance c;
@@ -230,14 +298,14 @@ Cloth create_mesh() {
 
 void create_mesh2(Cloth& chain) {
     int num_of_particles = 15;
-    int num_of_rows = 15;
+    int num_of_columns = 30;
     //dodajemy particle do chaina
-    for (int j = 0; j < num_of_rows; j++)
+    for (int j = 0; j < num_of_columns; j++)
     {
         for (int i = 0; i < num_of_particles; i++) {
             Particle p1;
-            (i == 0 && (j == 0 || j == num_of_rows - 1)) ? p1.mass_inv = 0.0f : p1.mass_inv = 1.0f;
-            p1.cur_pos = { 0.0f , -(float)i*2.0f, -j * 2.0f };
+            (i == 0 )? p1.mass_inv = 0.0f : p1.mass_inv = 1.0f;
+            p1.cur_pos = { -10.0f , -(float)i/2.0f+5.0f , (float)j/2.0f - num_of_columns/2  };
             //   p1.prev_pos = { (float)i, (float)i + 3, 0.0f };
             p1.vel = { 0.0f, 0.0f, 0.0f };
 
@@ -248,35 +316,37 @@ void create_mesh2(Cloth& chain) {
 
 
     // constrainty pomiedzy kulkami
-    for (int i = 0; i < num_of_rows; i++)
+    for (int i = 0; i < num_of_columns; i++)
     {
         for (int j = 0;j < num_of_particles - 1; j++) {
             Constraint_Distance c;
             c.i1 = j + num_of_particles * i;
             c.i2 = j + num_of_particles * i + 1;
-            c.rest_length = 2.0f;
+            c.rest_length = 0.5f;
             chain.constraints.push_back(c);
         }
     }
-    for (int i = 0; i < num_of_rows - 1; i++)
+    for (int i = 0; i < num_of_columns - 1; i++)
     {
         for (int j = 0; j < num_of_particles; j++) {
             Constraint_Distance c;
             c.i1 = j + num_of_particles * i;
             c.i2 = j + (num_of_particles) * (i + 1);
-            c.rest_length = 2.0f;
+            c.rest_length =0.5f;
             chain.constraints.push_back(c);
 
         }
     }
     //te ukosne
-    for (int i = 0; i < num_of_rows - 1; i++)
+
+    
+    for (int i = 0; i < num_of_columns - 1; i++)
     {
         for (int j = 0; j < num_of_particles-1; j++) {
             Constraint_Distance c;
             c.i1 = j + num_of_particles * i;
             c.i2 = j + (num_of_particles) * (i + 1) + 1;
-            c.rest_length = sqrt(8);
+            c.rest_length = sqrt(1)/2;
           //  c.strong = 0.1;
             chain.constraints.push_back(c);
 
@@ -285,13 +355,16 @@ void create_mesh2(Cloth& chain) {
 
     //bend
 
-    for (int i = 0; i < num_of_rows - 1; i++)
+    for (int i = 0; i < num_of_columns - 1; i++)
     {
         for (int j = 0; j < num_of_particles - 1; j++) {
           //  if (chain.particles[i * num_of_particles + j].mass_inv == 0.0f) continue;
             Constraint_Bend c;
-            c.i1 = j + num_of_particles * i+1;
+            c.i1 = j + num_of_particles * i + 1;
             c.i2 = j + (num_of_particles) * (i + 1);
+            Vector3 diff = chain.particles[j + num_of_particles * i + 1].cur_pos - chain.particles[j + (num_of_particles) * (i + 1)].cur_pos;
+
+            c.min_length = mag(diff) / 2;
             chain.bend.push_back(c);
            
             //chain.constraints.push_back(c);
@@ -300,16 +373,79 @@ void create_mesh2(Cloth& chain) {
     }
     //LRA
 
-    for (int i = 0; i < num_of_rows ; i++)
+    /*for (int i = 0; i < num_of_columns * num_of_particles; i++)
+    {
+        if (chain.particles[i].mass_inv == 0.0f){
+             continue;
+        }
+        Constraint_LRA c;
+        float min_dist = FLT_MAX;
+        for (int z = 0; z < num_of_columns * num_of_particles; z++) {
+
+
+            if (chain.particles[z].mass_inv == 0.0f &&
+                min_dist > distance(chain.particles[z].cur_pos, chain.particles[i].cur_pos)) {
+
+                min_dist = distance(chain.particles[z].cur_pos, chain.particles[i].cur_pos);
+                c.i1 = z;
+            }
+        }
+        c.i2 =  i;
+        c.max_length = distance(chain.particles[c.i1].cur_pos, chain.particles[c.i2].cur_pos);
+        chain.lra.push_back(c);
+
+    }*/
+
+    const int num_particles_total = num_of_columns * num_of_particles;
+    for (int i_dynamic = 0; i_dynamic < num_particles_total; ++i_dynamic)
+    {
+        const Particle& particle_a = chain.particles[i_dynamic];
+
+        // skip fixed particles
+        if (particle_a.mass_inv == 0.0f)
+            continue;
+
+        // find closest fixed particle
+        float min_dist = FLT_MAX;
+        int i_closest_fixed = -1;
+        for (int i_fixed = 0; i_fixed < num_particles_total; ++i_fixed)
+        {
+            const Particle& particle_b = chain.particles[i_fixed];
+
+            // skip dynamic particles
+            if (particle_b.mass_inv != 0.0f)
+                continue;
+
+            const float dist = distance(particle_a.cur_pos, particle_b.cur_pos);
+            if (dist < min_dist)
+            {
+                min_dist = dist;
+                i_closest_fixed = i_fixed;
+            }
+        }
+
+        if (i_closest_fixed == -1)
+            break;  // wtf?!
+
+        Constraint_LRA lra;
+        lra.i1 = i_closest_fixed;
+        lra.i2 = i_dynamic;
+        lra.max_length = min_dist;
+        
+        chain.lra.push_back(lra);
+    }
+
+    /*for (int i = 0; i < num_of_columns; i++)
     {
         for (int j = 0; j < num_of_particles; j++) {
               if (chain.particles[i * num_of_particles + j].mass_inv == 0.0f) continue;
             Constraint_LRA c;
             int min_dist = INT16_MAX;
-            for (int z = 0; z < num_of_rows; z++) {
+            for (int z = 0; z < num_of_columns; z++) {
                 for (int s = 0; s < num_of_particles; s++) {
                     if (chain.particles[z * num_of_particles + s].mass_inv == 0.0f &&
                         min_dist > distance(chain.particles[z * num_of_particles + s].cur_pos, chain.particles[i * num_of_particles + j].cur_pos)) {
+
                         min_dist = distance(chain.particles[z * num_of_particles + s].cur_pos, chain.particles[i * num_of_particles + j].cur_pos);
                         c.i1 = z * num_of_particles + s;
                     }
@@ -324,7 +460,7 @@ void create_mesh2(Cloth& chain) {
 
         }
     }
-   
+   */
 
 
 }
@@ -332,15 +468,14 @@ void create_mesh2(Cloth& chain) {
 Cloth create_mesh3() {
     Cloth chain;
     int num_of_particles = 15;
-    int num_of_rows = 15;
+    int num_of_columns = 15;
     //dodajemy particle do chaina
-    for (int j = 0; j < num_of_rows; j++)
+    for (int j = 0; j < num_of_columns; j++)
     {
         for (int i = 0; i < num_of_particles; i++) {
             Particle p1;
-            (i == 0) ? p1.mass_inv = 0.0f : p1.mass_inv = 1.0f;
-            p1.cur_pos = { 1.0f * i , -(float)i, (i % 2 == 0) ? -j * 2.0f + 0.2f * j : j * 2.0f + 0.2f * j };
-            //   p1.prev_pos = { (float)i, (float)i + 3, 0.0f };
+            (i == 0 && (j == 0 || j == num_of_columns -1) )? p1.mass_inv = 0.0f : p1.mass_inv = 1.0f;
+            p1.cur_pos = { -10.0f , -(float)j / 2.0f + 5.0f, (float)i / 2.0f - num_of_particles / 2 };//   p1.prev_pos = { (float)i, (float)i + 3, 0.0f };
             p1.vel = { 0.0f, 0.0f, 0.0f };
 
             chain.particles.push_back(p1);
@@ -350,7 +485,7 @@ Cloth create_mesh3() {
 
 
     // constrainty pomiedzy kulkami
-    for (int i = 0; i < num_of_rows; i++)
+    for (int i = 0; i < num_of_columns; i++)
     {
         for (int j = 0;j < num_of_particles - 1; j++) {
             Constraint_Distance c;
@@ -360,7 +495,7 @@ Cloth create_mesh3() {
             chain.constraints.push_back(c);
         }
     }
-    for (int i = 0; i < num_of_rows - 1; i++)
+    for (int i = 0; i < num_of_columns - 1; i++)
     {
         for (int j = 0; j < num_of_particles; j++) {
             Constraint_Distance c;
@@ -372,7 +507,7 @@ Cloth create_mesh3() {
         }
     }
     //te ukosne
-    for (int i = 0; i < num_of_rows - 1; i++)
+    for (int i = 0; i < num_of_columns - 1; i++)
     {
         for (int j = 0; j < num_of_particles - 1; j++) {
             Constraint_Distance c;
@@ -383,7 +518,7 @@ Cloth create_mesh3() {
 
         }
     }
-    for (int i = 0; i < num_of_rows - 1; i++)
+    for (int i = 0; i < num_of_columns - 1; i++)
     {
         for (int j = 0; j < num_of_particles - 1; j++) {
             Constraint_Distance c;
@@ -421,18 +556,99 @@ Cloth create_chain() {
     }
     return chain;
 }
+
+Mesh create_mesh_render(int rows, int columns) {
+    Mesh mesh = { 0 };
+    mesh.vertexCount = rows * columns;
+    mesh.triangleCount = (rows - 1) * (columns - 1) * 2;
+
+    int size = sizeof(float);
+    mesh.vertices = (float*)MemAlloc(mesh.vertexCount * 3 * size);
+    mesh.texcoords = (float*)MemAlloc(mesh.vertexCount * 2 * size);
+    
+    mesh.indices = (unsigned short*)MemAlloc(mesh.triangleCount * 3 * size);
+
+
+    //tex cords (x,y) 
+    for (int i = 0; i < columns; i++) {
+        for (int j = 0; j < rows; j++) {
+            
+            mesh.texcoords[(i * rows + j) * 2] = (float)j / (float)(rows - 1);
+            mesh.texcoords[(i * rows + j) * 2 + 1] = (float)i / (float)(columns - 1);
+
+        }
+    }
+    //triangles
+    int index = 0;
+    for (int i = 0; i < columns-1; i++) {
+        for (int j = 0; j < rows-1; j++) {
+
+            //traingle 1
+            mesh.indices[index] = i * rows + j;
+            index++;
+            mesh.indices[index] = i * rows + j+1;
+            index++;
+            mesh.indices[index] = (i+1) * rows + j;
+            index++;
+           
+            //triangle 2
+            mesh.indices[index] = i * rows + j + 1;
+            index++;
+            mesh.indices[index] = (i + 1) * rows + j + 1;
+            index++;
+            mesh.indices[index] = (i + 1) * rows + j;
+            index++;
+
+
+        }
+    }
+    UploadMesh(&mesh, true);
+    return mesh;
+
+
+
+}
+
+void update_mesh_render(Mesh& mesh, std::vector<Particle>& particles) {
+    for (int k = 0; k < (int)particles.size() && k < mesh.vertexCount; k++) {
+        mesh.vertices[k * 3 + 0] = particles[k].cur_pos.x;
+        mesh.vertices[k * 3 + 1] = particles[k].cur_pos.y;
+        mesh.vertices[k * 3 + 2] = particles[k].cur_pos.z;
+    }
+    
+    UpdateMeshBuffer(mesh, 0, mesh.vertices, mesh.vertexCount * 3 * sizeof(float), 0);
+
+
+    
+}
+Matrix matrix_identity() {
+    Matrix m = { 0 };
+    m.m0 = 1.0f; m.m5 = 1.0f; m.m10 = 1.0f; m.m15 = 1.0f;
+    return m;
+}
 int main(void)
 {
-    
-
+    Sphere sphere;
+    sphere.pos = { 0.0f, 0.0f, -5.0f };
+    sphere.radius = 3.0f;
+   
+  
+    Vector3 sphere_velocity = {10.0f, 0.0f, 1.0f };
    const int screenWidth = 800;
     const int screenHeight = 450;
 
     InitWindow(screenWidth, screenHeight, "");
 
+
+    Texture2D texture = LoadTexture("nice.png");
+    GenTextureMipmaps(&texture);
+    SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
+
+
+    if (texture.id == 0) TraceLog(LOG_ERROR, "cant load");
     Camera3D camera = { 0 };
-    camera.position ={ 30.0f, -15.0f, 20.0f };
-    camera.target = { 0.0f, -15.0f, 0.0f };    
+    camera.position ={ -30.0f, 2.0f, -20.0f };
+    camera.target = { 0.0f,0.0f, 0.0f };    
     camera.up = { 0.0f, 1.0f, 0.0f };       
     camera.fovy = 45.0f;                             
     camera.projection = CAMERA_PERSPECTIVE;            
@@ -456,14 +672,30 @@ int main(void)
     Cloth chain;
     create_mesh2(chain);
 
+
+
+    Mesh mesh = create_mesh_render(15, 30);
+    Material clothMat = LoadMaterialDefault();
+    SetMaterialTexture(&clothMat, MATERIAL_MAP_DIFFUSE, texture);
+    update_mesh_render(mesh, chain.particles);
+
     
     Vector3 gravity = {0.0f, -20.0f, 0.0f};
-    Vector3 wind = {0.1f, 0.1f, 0.0f};
-
+    Vector3 wind = {0.0f, 0.0f, 0.0f};
+    float sim_time = 0.0f;
     while (!WindowShouldClose())     
     {
+        if (IsKeyDown(KEY_DOWN)) {
+            camera.position.y -= 0.5f;
+            camera.target.y -= 0.5f;
+        }
+        if (IsKeyDown(KEY_UP)) {
+            camera.position.y += 0.5f;
+            camera.target.y += 0.5f;
+        }
         //UpdateCamera(&camera, CAMERA_FREE);
         float dt = GetFrameTime();
+        sim_time += dt;
 
         // update wind vector
         {
@@ -471,13 +703,29 @@ int main(void)
         }
 
         if (dt > 0.0f) {
-            integrate_linear(chain.particles, gravity, wind, dt);
-            solve_distance(chain.particles, chain.constraints, 0.001f, dt);
-            solve_bend(chain.particles, chain.bend, 0.001f, dt);
-            solve_lra(chain.particles, chain.lra);
-            derive_velocity(chain.particles, dt);
-        }
+         
+                integrate_linear(chain.particles, gravity, wind, dt);
+                solve_distance(chain.particles, chain.constraints, 0.005f, dt);
+               solve_lra(chain.particles, chain.lra);
+               // solve_bend(chain.particles, chain.bend, 0.001f, dt);
+                solve_collision_sphere(chain.particles, sphere);
+                solve_collision_particles(chain.particles, dt);
 
+                derive_velocity(chain.particles, dt);
+            
+                update_mesh_render(mesh, chain.particles);
+        }
+        if (IsKeyDown(KEY_LEFT)) {
+            sphere.pos.x -= 0.2f;
+        }
+        if (IsKeyDown(KEY_RIGHT)) {
+            sphere.pos.x += 0.2f;
+        }    
+
+        //nie moga z sasiadami sie przecinac
+
+
+      //  sphere.pos.x +=  sphere_velocity.x * sinf(sim_time/2)*dt;
       
 
         //rysowanie
@@ -494,23 +742,31 @@ int main(void)
         delay *= 0.999f;
         */
         BeginDrawing();
-        ClearBackground(RAYWHITE);
+       
+        ClearBackground(BLACK);
+
+   
         BeginMode3D(camera);
        
+      
+        DrawMesh(mesh, clothMat, matrix_identity());
+     
+
         //distance RED
         for (Constraint_Distance& constraint : chain.constraints) {
-            DrawLine3D(chain.particles[constraint.i1].cur_pos, chain.particles[constraint.i2].cur_pos, RED);
+          // DrawLine3D(chain.particles[constraint.i1].cur_pos, chain.particles[constraint.i2].cur_pos, RED);
         }
         //bend BLUE
         for (Constraint_Bend& constraint : chain.bend) {
-            DrawLine3D(chain.particles[constraint.i1].cur_pos, chain.particles[constraint.i2].cur_pos, BLUE);
+           // DrawLine3D(chain.particles[constraint.i1].cur_pos, chain.particles[constraint.i2].cur_pos, BLUE);
         } 
         //lra
         for (Constraint_LRA& constraint : chain.lra) {
-            DrawLine3D(chain.particles[constraint.i1].cur_pos, chain.particles[constraint.i2].cur_pos, BLACK);
+          // DrawLine3D(chain.particles[constraint.i1].cur_pos, chain.particles[constraint.i2].cur_pos, BLACK);
         }
+
         for (Particle& particle : chain.particles) {
-            DrawSphere(particle.cur_pos, 0.2f, BLUE);
+          //  DrawSphere(particle.cur_pos, 0.2f, particle.color);
         }
 
        
@@ -521,18 +777,22 @@ int main(void)
         
         DrawSphere(spherePosition, 0.2f, GREEN);
         */
-        DrawGrid(10, 1.0f);
-
+        DrawGrid(100, 1.0f);
+        DrawSphere(sphere.pos, sphere.radius, BLUE);
         EndMode3D();
+       
 
+        
         DrawRectangle(10, 10, 320, 93, Fade(SKYBLUE, 0.5f));
         DrawRectangleLines(10, 10, 320, 93, BLUE);
+      
         DrawText(TextFormat("Dist: %.2f"), 40, 80, 10, DARKGRAY);
-
+      //  DrawTextureEx(texture, { 650, 10 }, 0.0f, 100.0f / texture.width, WHITE);
         EndDrawing();
       
     }
 
     CloseWindow();       
     return 0;
+
 }
